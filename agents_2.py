@@ -15,7 +15,7 @@ class Agent(object):
         self.gamma = 0.99
         self.batch_size = 32
         self.learning_rate = 0.0000625
-        self.memory= ExperienceMemory(64000)
+        self.memory= ExperienceMemory(128000)
         self.q_network = self.build_dqn(n_actions, input_dims)
         self.target_network = self.build_dqn(n_actions, input_dims)
         self.optimizer = Adam( lr = self.learning_rate )
@@ -64,7 +64,7 @@ class Agent(object):
     
     def learn(self):
       # First of all, make sure we have enough memories to train on.
-        if self.memory.get_length() > self.batch_size:
+        if self.memory.get_length() > self.batch_size and self.memory.get_length() >= 60000:
             # Get a batch of memories. Each is an array of 32 memories
             state, action, reward, new_state, done = \
                                     self.memory.sample_buffer(self.batch_size)
@@ -73,11 +73,13 @@ class Agent(object):
             # network for the state and the target network for the next state
             action_onehot = tf.one_hot( action, self.action_space, axis=1)
 
-            q_t = self.q_network( state )
-            q_t_selected = tf.reduce_sum( q_t * action_onehot, axis = 1)
+            Q_cp = self.q_network( new_state )
+            dab  = tf.argmax( Q_cp, axis = 1 )
+            dab_onehot = tf.one_hot( dab, self.action_space, axis = 1)
 
             q_t_plus_1 = self.target_network( new_state )
-            q_t_plus_1_best = tf.reduce_max( q_t_plus_1, axis=1 )            
+            q_t_plus_1_chosen = tf.multiply( q_t_plus_1, dab_onehot )
+            q_t_plus_1_best = tf.reduce_sum( q_t_plus_1_chosen , axis=1 )            
 
             # Dones is 0 or 1, so this acts as a mask so that when the episode
             # is done, we will only take the reward

@@ -13,7 +13,7 @@ import sys, shutil
 from tqdm import tqdm
 
 
-num_iter = 0
+num_iter = 0 
 
 ENV_NAME = 'MsPacman-v0'
 SAVE_FILE = './' + ENV_NAME + '.h5' 
@@ -25,21 +25,22 @@ evaluation = False
 SAVE_FREQUENCY = 2000
 MODEL_COPY_FREQUENCY = 2000
 
-BATCH_SIZE = 32
+BATCH_SIZE = 32 
  
 env = make_env( ENV_NAME )
 
 agent = Agent( n_actions=env.action_space.n, input_dims=(4,84,84) )
 
 if LOAD_CHECKPOINT:
-    num_iter = agent.load_models( SAVE_FILE )
+    agent.load_models( SAVE_FILE )
 
 agent.save_models( SAVE_FILE ) 
 
 
 scores = []
 losses = []
-pbar = tqdm( total = 5e6 )
+pbar = tqdm( total = int(5e6) )
+pbar.update( num_iter )
 best_score = -np.inf
 while True:
 

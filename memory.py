@@ -9,17 +9,19 @@ class ExperienceMemory(object):
       self.reward_memory    = np.zeros([max_memory_length], dtype=np.float16)#deque(maxlen=max_memory_length)
       self.done_memory      = np.zeros([max_memory_length], dtype=np.uint8)#deque(maxlen=max_memory_length)
       self.counter          = 0
+      self.ptr              = 0
       self.max_memory_length= max_memory_length
 
   def get_length(self):
       return self.counter#len(self.state_memory)
 
-  # Store a new memory    
+  # Store a new memory
   def store_transition(self, state, action, reward, done):
-      self.state_memory[self.counter % self.max_memory_length ] = (state*255.).astype(np.uint8)
-      self.action_memory[self.counter % self.max_memory_length] = action
-      self.reward_memory[self.counter % self.max_memory_length] = reward
-      self.done_memory[self.counter % self.max_memory_length]   = done
+      self.state_memory[self.ptr % self.max_memory_length ] = (state*255.).astype(np.uint8)
+      self.action_memory[self.ptr % self.max_memory_length] = action
+      self.reward_memory[self.ptr % self.max_memory_length] = reward
+      self.done_memory[self.ptr % self.max_memory_length]   = done
+      self.ptr = (self.ptr + 1) % self.max_memory_length
       self.counter = min( self.counter+1, self.max_memory_length ) 
 
   # Get out batch_size samples from the memory
