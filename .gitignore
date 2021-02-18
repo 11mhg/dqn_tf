@@ -1,3 +1,4 @@
 out.txt
 *.h5
 *pycache*
+logs/*
