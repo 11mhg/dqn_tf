@@ -10,29 +10,42 @@ from memory import ExperienceMemory
 
 
 class Agent(object):
-    def __init__(self, n_actions, input_dims):
-        self.action_space = n_actions
-        self.gamma = 0.99
-        self.batch_size = 32
-        self.learning_rate = 0.0001#0.0000625
-        self.memory= ExperienceMemory(256000)
+    def __init__(self, env, n_actions, input_dims):
+        self.env            = env
+        self.SCREEN_DIMS    = list(self.env.observation_space.shape)
+        self.action_space   = n_actions
+        self.gamma          = 0.99
+        self.batch_size     = 32
+        self.learning_rate  = 0.0000625
+        self.FRAMESKIP      = 4
+        self.memory= ExperienceMemory(256000, self.FRAMESKIP)
+        
+        #make network
         self.q_network = self.build_dqn(n_actions, input_dims)
         self.target_network = self.build_dqn(n_actions, input_dims)
+        
+        #warmup
+        self.q_network( tf.ones([1, *input_dims], dtype=tf.float32) )
+        self.target_network( tf.ones([1, *input_dims], dtype=tf.float32) )
+        
+        self.target_network.set_weights( self.q_network.get_weights() )
+
+        #optimizer
         self.optimizer = Adam( lr = self.learning_rate,
                 beta_1 = 0.5, beta_2=0.999, epsilon=1e-07, amsgrad=False)
 
     # This is the same architecture used by deep mind
     def build_dqn(self, n_actions, input_dims):
         inputs = tf.keras.layers.Input( shape=[*input_dims], dtype=tf.float32)
-        x = Conv2D( filters=64 , kernel_size=3, strides=1, padding='same', data_format='channels_first')(inputs)
+        x = Conv2D( filters=64 , kernel_size=3, strides=1, padding='valid')(inputs)
         x = tf.keras.layers.ReLU()(x) 
-        x = Conv2D( filters=128, kernel_size=3, strides=2, padding='same', data_format='channels_first')(x)
+        x = Conv2D( filters=128, kernel_size=3, strides=2, padding='valid')(x)
         x = tf.keras.layers.ReLU()(x)
-        x = Conv2D( filters=256, kernel_size=3, strides=2, padding='same', data_format='channels_first')(x)
+        x = Conv2D( filters=256, kernel_size=3, strides=2, padding='valid')(x)
         x = tf.keras.layers.ReLU()(x)
-        x = Conv2D( filters=128, kernel_size=3, strides=2, padding='same', data_format='channels_first')(x)
+        x = Conv2D( filters=128, kernel_size=3, strides=2, padding='valid')(x)
         x = tf.keras.layers.ReLU()(x)
-        x = Conv2D( filters=64 , kernel_size=3, strides=1, padding='same', data_format='channels_first')(x)
+        x = Conv2D( filters=64 , kernel_size=3, strides=1, padding='valid')(x)
         x = tf.keras.layers.ReLU()(x)
         x = Flatten()(x)
         
@@ -62,6 +75,9 @@ class Agent(object):
     # The agent will make use of our ExplorerExploiter to choose either
     # Random actions or the action that gives the highest Q value
     def choose_action(self, observation,t = 0, eval_flag=False):
+        if observation.dtype != np.float32:
+            raise ValueError('observation has wrong dtype')
+
         if self.action_choice_policy(t, eval_flag): 
             action = np.random.randint(0,self.action_space)
         else:
@@ -96,8 +112,8 @@ class Agent(object):
         
         q_target = tf.where(
                 tf.cast( done, tf.bool ), 
-                tf.math.sign( reward ),
-                tf.math.sign( reward ) + (self.gamma * q_t_plus_1_best)
+                reward,
+                reward + (self.gamma * q_t_plus_1_best)
         ) 
         
         #q_target = tf.math.sign(reward) + ( 1 - tf.cast(done, tf.float32) ) * ( self.gamma * q_t_plus_1_best )
@@ -122,8 +138,52 @@ class Agent(object):
             # Get a batch of memories. Each is an array of 32 memories
             state, action, reward, new_state, done = \
                                     self.memory.sample_buffer(self.batch_size)
-            return self.train_step( state, action, reward, new_state, done ).numpy() 
+            return self.train_step( state, action, reward, new_state, done ).numpy()
+    
+    def reset_env(self):
+        o = self.env.reset()
+        po = self.process_frame84( o, o)
+        curr_state = np.tile(po,[1,1,self.FRAMESKIP])
+        curr_state = curr_state.astype(np.float32) / 255.
+        return curr_state
+    
+    def step(self, supstate, t, _eval=False ):
+        doneFlag = False
+        nextFrame = np.zeros([84,84,1], dtype=np.float32)
+        action = self.choose_action( np.expand_dims( supstate, 0), t, _eval )
 
+        i = 0
+        tot_reward = 0
+        observation = np.zeros([2, *self.SCREEN_DIMS], dtype=np.uint8)
+
+        while (i < self.FRAMESKIP ):
+            obs, reward, doneFlag, info = self.env.step( action )
+            observation[i%2] = obs
+            i+=1
+            tot_reward += reward
+            newLives = info['ale.lives']
+
+            if doneFlag:
+                break
+        nextFrame = self.process_frame84( observation[0], observation[1] ).astype(np.float32) / 255.
+
+        supstate[...,:-1] = supstate[...,1:]
+        supstate[...,-1 ] = nextFrame[...,0]
+
+        self.memory.store_transition( supstate, action, tot_reward, doneFlag )
+
+        return supstate, tot_reward, doneFlag, info
+
+
+    def process_frame84(self, obs1, obs2):
+        frame = np.maximum( obs1, obs2)
+        img   = frame.astype(np.float32)
+        img   = img[:, :, 0] * 0.299 + img[:, :, 1] * 0.587 + img[:,:,2] * 0.114
+
+        resized_screen = cv2.resize( img, (84, 84), interpolation=cv2.INTER_LINEAR)
+        x_t = np.reshape( resized_screen, [84,84,1])
+
+        return x_t.astype(np.uint8)
 
     def save_models(self, save_name):
         self.q_network.save(save_name)
@@ -132,3 +192,6 @@ class Agent(object):
     def load_models(self, save_name):
         self.q_network = tf.keras.models.load_model(save_name)
         self.target_network.set_weights(self.q_network.get_weights())
+
+
+

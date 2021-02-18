@@ -6,6 +6,7 @@ import tensorflow as tf
 tf.config.set_soft_device_placement(True)
 
 import numpy as np
+import cv2
 from agents import Agent
 from environment_wrapper import make_env
 import sys, shutil
@@ -24,11 +25,12 @@ evaluation = False
 SAVE_FREQUENCY = 100000
 MODEL_COPY_FREQUENCY = 2500
 
-BATCH_SIZE = 32 
+BATCH_SIZE = 32
+LARGE_BATCH_SIZE = 10 
  
 env = make_env( ENV_NAME )
 
-agent = Agent( n_actions=env.action_space.n, input_dims=(4,84,84) )
+agent = Agent(env = env, n_actions=env.action_space.n, input_dims=(84,84,4) )
 
 if LOAD_CHECKPOINT:
     try:
@@ -44,31 +46,29 @@ losses = []
 pbar = tqdm( total = int(5e6) )
 pbar.update( num_iter )
 best_score = -np.inf
-
 num_episodes = 0
+
+curr_state = []
+
+
 while True:
     num_episodes+=1 
     done = False
-    observation = env.reset()
+    curr_state = agent.reset_env()
     score = 0
-   
-    
+
     train_eval = False
 
     while not done:
         pbar.update(1)
         num_iter += 1
-        action = agent.choose_action( observation, num_iter, eval_flag=train_eval )
-        observation_, reward, done, info = env.step( action )
+
+        curr_state, reward, done, info = agent.step( curr_state, num_iter )
+
         score += reward
-        agent.store_transition(
-            observation, action, 
-            reward, int(done)
-        )
         l = agent.learn()
         if l is not None:
             losses.append( l )
-        observation = observation_
         
         if num_iter % MODEL_COPY_FREQUENCY == 0:
             agent.target_network.set_weights( agent.q_network.get_weights() )
