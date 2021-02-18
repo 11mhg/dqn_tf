@@ -19,7 +19,7 @@ class ExperienceMemory(object):
   def store_transition(self, state, action, reward, done):
       self.state_memory[self.ptr % self.max_memory_length ] = (state*255.).astype(np.uint8)
       self.action_memory[self.ptr % self.max_memory_length] = action
-      self.reward_memory[self.ptr % self.max_memory_length] = reward
+      self.reward_memory[self.ptr % self.max_memory_length] = reward if not done else -1
       self.done_memory[self.ptr % self.max_memory_length]   = done
       self.ptr = (self.ptr + 1) % self.max_memory_length
       self.counter = min( self.counter+1, self.max_memory_length ) 
@@ -31,25 +31,26 @@ class ExperienceMemory(object):
     rewards     = []
     next_states = []
     dones       = []
-  
-    for i in range(batch_size):
-      sample_id  = np.random.randint(0, self.counter-1)
-      states.append( self.state_memory[sample_id].astype(np.float32) / 255. )
-      actions.append(self.action_memory[sample_id])
-      rewards.append(self.reward_memory[sample_id])
-      next_states.append( self.state_memory[sample_id+1].astype(np.float32) / 255. )
-      dones.append(self.done_memory[sample_id])
+    
+    choosable_inds = list( range( 0, self.ptr-1)) + list(range(self.ptr, self.counter))
+    choosable_inds = list(set( choosable_inds ))
+    sample_id   = np.random.choice( choosable_inds, size=[batch_size], replace=False )
+    states      = self.state_memory[sample_id%self.counter].astype(np.float32) / 255.
+    actions     = self.action_memory[sample_id%self.counter].astype(np.int32)
+    rewards     = self.reward_memory[sample_id%self.counter].astype(np.float32)
+    next_states = self.state_memory[(sample_id+1)%self.counter].astype(np.float32) / 255.
+    dones       = self.done_memory[sample_id%self.counter].astype(np.int32)
 
-    return np.asarray(states), np.asarray(actions), np.asarray(rewards), np.asarray(next_states), np.asarray(dones)
-
+    return states, actions, rewards, next_states, dones
 
 
 
 if __name__ == '__main__':
     from tqdm import tqdm
-    e = ExperienceMemory(64000)
-    pbar = tqdm(total = 64000)
-    while (e.get_length() < 64000):
+    test_size = 128000
+    e = ExperienceMemory(test_size)
+    pbar = tqdm(total = test_size)
+    while (e.get_length() < test_size):
         pbar.update(1)
         e.store_transition( np.random.randn( 4, 84, 84 ), 1, 0., 0 )
 
@@ -59,6 +60,5 @@ if __name__ == '__main__':
     for i in range(10000):
         pbar.update(1)
         e.store_transition( np.random.randn( 4, 84, 84 ), 1, 0., 0 )
-
-
+        s = e.sample_buffer(32)
     print("Done!")

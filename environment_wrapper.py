@@ -68,7 +68,7 @@ class MoveImgChannel(gym.ObservationWrapper):
 class NormalizeFrame(gym.ObservationWrapper):
     # The match is easier if everything is normalized to be betwee 0 and 1.
     def observation(self, obs):
-        return np.array(obs).astype(np.float32) / 255.0
+        return np.clip( np.array(obs).astype(np.float32) / 255.0, 0., 1. )
 
 class FrameStacker(gym.ObservationWrapper):
     def __init__(self, env, n_steps):
